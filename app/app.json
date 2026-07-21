@@ -19,5 +19,5 @@
       "desc": "Captures voice prompts from the glasses microphone."
     }
   ],
-  "supported_languages": ["en", "ja"]
+  "supported_languages": ["ja"]
 }

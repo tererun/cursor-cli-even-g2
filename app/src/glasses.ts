@@ -15,6 +15,7 @@ const LIST_ID = 2;
 
 export class GlassesRenderer {
   private initialized = false;
+  private operations: Promise<void> = Promise.resolve();
 
   constructor(private readonly bridge: EvenAppBridge) {}
 
@@ -34,9 +35,11 @@ export class GlassesRenderer {
 
   async sessions(items: Session[]): Promise<void> {
     const names = items.length
-      ? items.slice(0, 20).map((item) => item.cwd.split("/").filter(Boolean).pop() || item.cwd)
+      ? items.slice(0, 20).map((item) =>
+          (item.cwd.split("/").filter(Boolean).pop() || item.cwd).slice(0, 64))
       : ["セッションなし"];
-    await this.bridge.rebuildPageContainer(
+    await this.enqueue(async () => {
+      const rebuilt = await this.bridge.rebuildPageContainer(
       new RebuildPageContainer({
         containerTotalNum: 2,
         textObject: [new TextContainerProperty({
@@ -65,30 +68,42 @@ export class GlassesRenderer {
           }),
         })],
       }),
-    );
+      );
+      if (!rebuilt) throw new Error("G2 session page rebuild failed");
+    });
   }
 
   async chat(content: string, page: number, totalPages: number, state: string): Promise<void> {
     const body = `${state}  ${page + 1}/${Math.max(totalPages, 1)}\n${content || "タップして音声入力"}`;
-    await this.bridge.rebuildPageContainer(
+    await this.enqueue(async () => {
+      const rebuilt = await this.bridge.rebuildPageContainer(
       new RebuildPageContainer({
         containerTotalNum: 1,
         textObject: [this.text(body)],
       }),
-    );
+      );
+      if (!rebuilt) throw new Error("G2 chat page rebuild failed");
+    });
   }
 
   async updateChat(content: string, page: number, totalPages: number, state: string): Promise<void> {
     const body = `${state}  ${page + 1}/${Math.max(totalPages, 1)}\n${content || "タップして音声入力"}`;
-    await this.bridge.textContainerUpgrade(new TextContainerUpgrade({
-      containerID: TEXT_ID,
-      containerName: "main",
-      content: body,
-    }));
+    await this.enqueue(async () => {
+      const updated = await this.bridge.textContainerUpgrade(new TextContainerUpgrade({
+        containerID: TEXT_ID,
+        containerName: "main",
+        content: body,
+      }));
+      if (!updated) throw new Error("G2 text update failed");
+    });
   }
 
   async choices(title: string, choices: string[]): Promise<void> {
-    await this.bridge.rebuildPageContainer(
+    const safeChoices = (choices.length ? choices : ["キャンセル"])
+      .slice(0, 20)
+      .map((choice) => choice.slice(0, 64));
+    await this.enqueue(async () => {
+      const rebuilt = await this.bridge.rebuildPageContainer(
       new RebuildPageContainer({
         containerTotalNum: 2,
         textObject: [new TextContainerProperty({
@@ -110,14 +125,16 @@ export class GlassesRenderer {
           containerName: "choices",
           isEventCapture: 1,
           itemContainer: new ListItemContainerProperty({
-            itemCount: choices.length,
+            itemCount: safeChoices.length,
             itemWidth: 552,
             isItemSelectBorderEn: 1,
-            itemName: choices.map((item) => item.slice(0, 80)),
+            itemName: safeChoices,
           }),
         })],
       }),
-    );
+      );
+      if (!rebuilt) throw new Error("G2 choice page rebuild failed");
+    });
   }
 
   private text(content: string): TextContainerProperty {
@@ -131,6 +148,12 @@ export class GlassesRenderer {
       content,
       isEventCapture: 1,
     });
+  }
+
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const result = this.operations.then(operation);
+    this.operations = result.catch(() => {});
+    return result;
   }
 }
 

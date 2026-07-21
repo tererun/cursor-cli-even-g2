@@ -35,6 +35,9 @@ let pages = [""];
 let page = 0;
 let activity = "IDLE";
 let choiceHandler: ((index: number) => Promise<void>) | undefined;
+let listSelection = 0;
+let followTail = true;
+let renderTimer: number | undefined;
 const recorder = new VoiceRecorder();
 
 function setStatus(message: string, error = false): void {
@@ -60,6 +63,7 @@ async function connect(serverUrl: string, token: string): Promise<void> {
     await bridge.setLocalStorage("cursor-g2-server", normalizedUrl);
     await bridge.setLocalStorage("cursor-g2-token", token);
     mode = "sessions";
+    listSelection = 0;
     setStatus("接続済み。G2でセッションを選択してください");
     renderSessionButtons();
     await renderer.sessions(sessionItems);
@@ -88,6 +92,7 @@ async function selectSession(session: Session): Promise<void> {
   transcript = "";
   pages = [""];
   page = 0;
+  followTail = true;
   mode = "chat";
   activity = "IDLE";
   streamController = new AbortController();
@@ -98,24 +103,25 @@ async function selectSession(session: Session): Promise<void> {
 }
 
 function handleServerEvent(event: ServerEvent): void {
+  if (!currentSession || event.sessionId !== currentSession.id) return;
   if (event.type === "text_delta") {
     transcript += String(event.text || "");
     pages = paginate(transcript);
-    page = pages.length - 1;
+    if (followTail) page = pages.length - 1;
     elements.output.textContent = transcript;
-    void renderChat();
+    scheduleChatRender();
   } else if (event.type === "status") {
     activity = String(event.state || "idle").toUpperCase();
-    void renderChat();
+    scheduleChatRender();
   } else if (event.type === "permission_request") {
     const request = event.request as { toolCall?: { title?: string }; options?: Array<{ optionId: string; name?: string }> };
-    const options = request.options?.map((option) => option.optionId) || [
-      "allow-once",
-      "allow-always",
-      "reject-once",
+    const options = request.options || [
+      { optionId: "allow-once", name: "今回のみ許可" },
+      { optionId: "allow-always", name: "常に許可" },
+      { optionId: "reject-once", name: "拒否" },
     ];
-    void showChoices(request.toolCall?.title || "ツール実行を許可しますか？", options, async (index) => {
-      await api?.permission(event.sessionId, String(event.requestId), options[index] || "reject-once");
+    void showChoices(request.toolCall?.title || "ツール実行を許可しますか？", options.map((option) => option.name || option.optionId), async (index) => {
+      await api?.permission(event.sessionId, String(event.requestId), options[index]?.optionId || "reject-once");
     });
   } else if (event.type === "user_question") {
     const request = event.request as {
@@ -138,7 +144,7 @@ function handleServerEvent(event: ServerEvent): void {
   } else if (event.type === "error") {
     activity = "ERROR";
     setStatus(String(event.message || "Cursor error"), true);
-    void renderChat();
+    scheduleChatRender();
   }
 }
 
@@ -150,13 +156,16 @@ async function showChoices(
   if (recorder.active) recorder.cancel();
   await bridge.audioControl(false);
   mode = "choice";
+  listSelection = 0;
   choiceHandler = async (index) => {
     try {
       await handler(index);
-    } finally {
       choiceHandler = undefined;
       mode = "chat";
       await renderChat(true);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), true);
+      await renderer.choices(`${title}\n送信失敗。再試行してください`, choices);
     }
   };
   await renderer.choices(title, choices);
@@ -166,13 +175,13 @@ async function startVoice(): Promise<void> {
   if (!api || !currentSession || recorder.active || mode !== "chat") return;
   activity = "LISTENING";
   await renderChat();
-  recorder.start((wav) => void completeVoice(wav));
   const opened = await bridge.audioControl(true, AudioInputSource.Glasses);
   if (!opened) {
-    recorder.cancel();
     activity = "MIC ERROR";
     await renderChat();
+    return;
   }
+  recorder.start((wav) => void completeVoice(wav));
 }
 
 async function completeVoice(wav: Blob | null): Promise<void> {
@@ -207,12 +216,26 @@ async function renderChat(rebuild = false): Promise<void> {
   else await renderer.updateChat(pages[page] || "", page, pages.length, activity);
 }
 
+function scheduleChatRender(): void {
+  if (renderTimer) window.clearTimeout(renderTimer);
+  renderTimer = window.setTimeout(() => {
+    renderTimer = undefined;
+    void renderChat().catch((error) =>
+      setStatus(error instanceof Error ? error.message : String(error), true));
+  }, 100);
+}
+
 async function handleHubEvent(event: EvenHubEvent): Promise<void> {
   if (event.audioEvent) {
     recorder.push(event.audioEvent.audioPcm);
     return;
   }
   const type = event.listEvent?.eventType ?? event.textEvent?.eventType ?? event.sysEvent?.eventType;
+  if (event.listEvent?.currentSelectItemIndex !== undefined) {
+    listSelection = event.listEvent.currentSelectItemIndex;
+  }
+  const isClick = type === OsEventTypeList.CLICK_EVENT
+    || (type === undefined && Boolean(event.listEvent || event.textEvent));
   if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) {
     streamController?.abort();
     recorder.cancel();
@@ -220,23 +243,25 @@ async function handleHubEvent(event: EvenHubEvent): Promise<void> {
     await bridge.shutDownPageContainer(1);
     return;
   }
-  if (mode === "sessions" && event.listEvent && type === OsEventTypeList.CLICK_EVENT) {
-    const selected = sessionItems[event.listEvent.currentSelectItemIndex ?? -1];
+  if (mode === "sessions" && event.listEvent && isClick) {
+    const selected = sessionItems[listSelection];
     if (selected) await selectSession(selected);
     return;
   }
-  if (mode === "choice" && event.listEvent && type === OsEventTypeList.CLICK_EVENT) {
-    await choiceHandler?.(event.listEvent.currentSelectItemIndex ?? -1);
+  if (mode === "choice" && event.listEvent && isClick) {
+    await choiceHandler?.(listSelection);
     return;
   }
   if (mode !== "chat") return;
   if (type === OsEventTypeList.SCROLL_TOP_EVENT) {
     page = Math.max(0, page - 1);
+    followTail = page === pages.length - 1;
     await renderChat();
   } else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
     page = Math.min(pages.length - 1, page + 1);
+    followTail = page === pages.length - 1;
     await renderChat();
-  } else if (type === OsEventTypeList.CLICK_EVENT) {
+  } else if (isClick) {
     if (recorder.active) recorder.finish();
     else if (activity === "BUSY" && currentSession) await api?.interrupt(currentSession.id);
     else await startVoice();

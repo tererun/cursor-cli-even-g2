@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { AcpClient } from "./acp-client.js";
@@ -7,6 +7,7 @@ import type { SessionRecord } from "./types.js";
 
 export class SessionManager {
   private readonly clients = new Map<string, AcpClient>();
+  private readonly starting = new Map<string, Promise<AcpClient>>();
   private records: SessionRecord[] = [];
 
   constructor(
@@ -30,7 +31,10 @@ export class SessionManager {
 
   async create(cwd: string): Promise<SessionRecord> {
     const safeCwd = await this.validateCwd(cwd);
-    const client = new AcpClient(safeCwd, this.events);
+    let client: AcpClient;
+    client = new AcpClient(safeCwd, this.events, () => {
+      if (this.clients.get(client.sessionId) === client) this.clients.delete(client.sessionId);
+    });
     const id = await client.start();
     const now = new Date().toISOString();
     const record = { id, cwd: safeCwd, createdAt: now, updatedAt: now };
@@ -66,22 +70,37 @@ export class SessionManager {
   private async getClient(sessionId: string): Promise<AcpClient> {
     const running = this.clients.get(sessionId);
     if (running) return running;
+    const pending = this.starting.get(sessionId);
+    if (pending) return pending;
     const record = this.records.find((item) => item.id === sessionId);
     if (!record) throw new Error("Session not found");
-    const client = new AcpClient(record.cwd, this.events);
-    await client.start(sessionId);
-    this.clients.set(sessionId, client);
-    return client;
+    const start = (async () => {
+      const cwd = await this.validateCwd(record.cwd);
+      let client: AcpClient;
+      client = new AcpClient(cwd, this.events, () => {
+        if (this.clients.get(sessionId) === client) this.clients.delete(sessionId);
+      });
+      await client.start(sessionId);
+      this.clients.set(sessionId, client);
+      return client;
+    })();
+    this.starting.set(sessionId, start);
+    try {
+      return await start;
+    } finally {
+      this.starting.delete(sessionId);
+    }
   }
 
   private async validateCwd(cwd: string): Promise<string> {
     if (!isAbsolute(cwd)) throw new Error("cwd must be an absolute path");
-    const normalized = resolve(cwd);
+    const normalized = await realpath(resolve(cwd));
     const roots = (process.env.ALLOWED_PROJECT_ROOTS || homedir())
       .split(",")
-      .map((root) => resolve(root.trim()))
+      .map((root) => root.trim())
       .filter(Boolean);
-    if (!roots.some((root) => normalized === root || normalized.startsWith(`${root}${sep}`))) {
+    const realRoots = await Promise.all(roots.map((root) => realpath(resolve(root))));
+    if (!realRoots.some((root) => normalized === root || normalized.startsWith(`${root}${sep}`))) {
       throw new Error("cwd is outside ALLOWED_PROJECT_ROOTS");
     }
     if (!(await stat(normalized)).isDirectory()) throw new Error("cwd is not a directory");

@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { EventBus } from "./event-bus.js";
 import { SessionManager } from "./session-manager.js";
@@ -40,6 +41,24 @@ export function createApp(): Hono {
     }
     await next();
   });
+  app.use("/api/transcribe", bodyLimit({
+    maxSize: 8 * 1024 * 1024,
+    onError: (c) => c.json({ error: "Audio payload is too large" }, 413),
+  }));
+  const jsonBodyLimit = bodyLimit({
+    maxSize: 128 * 1024,
+    onError: (c) => c.json({ error: "Request body is too large" }, 413),
+  });
+  for (const path of [
+    "/api/sessions",
+    "/api/prompt",
+    "/api/interrupt",
+    "/api/permission-response",
+    "/api/question-response",
+    "/api/plan-response",
+  ]) {
+    app.use(path, jsonBodyLimit);
+  }
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.get("/api/info", (c) => c.json({
@@ -117,14 +136,24 @@ export function createApp(): Hono {
 
   app.get("/api/events", (c) => {
     const sessionId = requireString(c.req.query("sessionId"), "sessionId");
+    const afterId = Number(c.req.header("last-event-id") || 0);
     return streamSSE(c, async (stream) => {
-      await stream.writeSSE({ event: "connected", data: JSON.stringify({ sessionId }) });
       await new Promise<void>((resolve) => {
-        const unsubscribe = events.subscribe(sessionId, (event) => {
-          void stream.writeSSE({ event: event.type, data: JSON.stringify(event) }).catch(() => {});
-        });
+        let writes = Promise.resolve();
+        const write = (message: Parameters<typeof stream.writeSSE>[0]) => {
+          writes = writes.then(() => stream.writeSSE(message));
+          return writes;
+        };
+        void write({ event: "connected", data: JSON.stringify({ sessionId }) });
+        const unsubscribe = events.subscribe(sessionId, ({ id, event }) => {
+          void write({
+            id: String(id),
+            event: event.type,
+            data: JSON.stringify(event),
+          }).catch(() => {});
+        }, Number.isFinite(afterId) ? afterId : 0);
         const heartbeat = setInterval(() => {
-          void stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
+          void write({ event: "ping", data: "{}" }).catch(() => {});
         }, 15_000);
         stream.onAbort(() => {
           clearInterval(heartbeat);

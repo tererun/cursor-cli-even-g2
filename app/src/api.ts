@@ -80,9 +80,10 @@ export class ApiClient {
     signal: AbortSignal,
   ): Promise<void> {
     let retryMs = 500;
+    const cursor = { lastEventId: "" };
     while (!signal.aborted) {
       try {
-        await this.streamOnce(sessionId, onEvent, signal);
+        await this.streamOnce(sessionId, onEvent, signal, cursor);
         retryMs = 500;
       } catch (error) {
         if (signal.aborted) return;
@@ -97,10 +98,17 @@ export class ApiClient {
     sessionId: string,
     onEvent: (event: ServerEvent) => void,
     signal: AbortSignal,
+    cursor: { lastEventId: string },
   ): Promise<void> {
     const response = await fetch(
       `${this.baseUrl}/api/events?sessionId=${encodeURIComponent(sessionId)}`,
-      { headers: { Authorization: `Bearer ${this.token}` }, signal },
+      {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          ...(cursor.lastEventId ? { "Last-Event-ID": cursor.lastEventId } : {}),
+        },
+        signal,
+      },
     );
     if (!response.ok || !response.body) throw new Error(await this.errorMessage(response));
 
@@ -113,13 +121,19 @@ export class ApiClient {
       const frames = buffer.split(/\r?\n\r?\n/);
       buffer = frames.pop() || "";
       for (const frame of frames) {
-        const data = frame
-          .split(/\r?\n/)
+        const lines = frame.split(/\r?\n/);
+        const id = lines.find((line) => line.startsWith("id:"))?.slice(3).trim();
+        const data = lines
           .filter((line) => line.startsWith("data:"))
           .map((line) => line.slice(5).trimStart())
           .join("\n");
         if (!data || data === "{}") continue;
-        onEvent(JSON.parse(data) as ServerEvent);
+        try {
+          onEvent(JSON.parse(data) as ServerEvent);
+          if (id) cursor.lastEventId = id;
+        } catch (error) {
+          console.warn("Ignoring malformed SSE event", error);
+        }
       }
     }
   }

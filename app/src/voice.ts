@@ -103,5 +103,7 @@ function pcmToWav(pcm: Uint8Array): Blob {
   view.setUint16(34, 16, true);
   write(36, "data");
   view.setUint32(40, pcm.byteLength, true);
-  return new Blob([header, pcm], { type: "audio/wav" });
+  const audio = new Uint8Array(pcm.byteLength);
+  audio.set(pcm);
+  return new Blob([header, audio.buffer], { type: "audio/wav" });
 }

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { EventBus } from "./event-bus.js";
 import type { JsonRpcMessage } from "./types.js";
@@ -11,6 +12,7 @@ interface PendingRpc {
 interface PendingInteraction {
   rpcId: number | string;
   method: string;
+  allowedOptionIds?: Set<string>;
 }
 
 export class AcpClient {
@@ -24,17 +26,14 @@ export class AcpClient {
   constructor(
     private readonly cwd: string,
     private readonly events: EventBus,
+    private readonly onExit?: () => void,
   ) {}
 
   async start(existingSessionId?: string): Promise<string> {
     if (this.process) return this.sessionId;
 
     const executable = process.env.CURSOR_AGENT_PATH || "agent";
-    const args = [
-      ...(process.env.CURSOR_API_KEY ? ["--api-key", process.env.CURSOR_API_KEY] : []),
-      ...(process.env.CURSOR_AUTH_TOKEN ? ["--auth-token", process.env.CURSOR_AUTH_TOKEN] : []),
-      "acp",
-    ];
+    const args = ["acp"];
     this.process = spawn(executable, args, {
       cwd: this.cwd,
       env: process.env,
@@ -42,6 +41,7 @@ export class AcpClient {
     });
 
     createInterface({ input: this.process.stdout }).on("line", (line) => this.onLine(line));
+    this.process.stdin.on("error", (error) => this.fail(error));
     this.process.stderr.on("data", (chunk) => {
       const message = String(chunk).trim();
       if (message) console.error(`[cursor-acp] ${message}`);
@@ -115,13 +115,20 @@ export class AcpClient {
   respondToInteraction(requestId: string, result: unknown): void {
     const interaction = this.interactions.get(requestId);
     if (!interaction) throw new Error("Pending interaction was not found");
+    if (interaction.method === "session/request_permission") {
+      const optionId = (result as { outcome?: { optionId?: unknown } })?.outcome?.optionId;
+      if (typeof optionId !== "string" || !interaction.allowedOptionIds?.has(optionId)) {
+        throw new Error("Permission option was not offered by Cursor ACP");
+      }
+    }
     this.respond(interaction.rpcId, result);
     this.interactions.delete(requestId);
   }
 
   close(): void {
-    this.process?.kill();
+    const child = this.process;
     this.process = undefined;
+    child?.kill();
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -129,7 +136,12 @@ export class AcpClient {
     const message = { jsonrpc: "2.0", id, method, params };
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.write(message);
+      try {
+        this.write(message);
+      } catch (error) {
+        this.pending.delete(id);
+        reject(error);
+      }
     });
   }
 
@@ -139,6 +151,10 @@ export class AcpClient {
 
   private respond(id: number | string, result: unknown): void {
     this.write({ jsonrpc: "2.0", id, result });
+  }
+
+  private respondError(id: number | string, code: number, message: string): void {
+    this.write({ jsonrpc: "2.0", id, error: { code, message } });
   }
 
   private write(message: object): void {
@@ -184,19 +200,20 @@ export class AcpClient {
   }
 
   private handleUpdate(params?: Record<string, unknown>): void {
+    const sessionId = typeof params?.sessionId === "string" ? params.sessionId : this.sessionId;
     const update = params?.update as Record<string, unknown> | undefined;
     if (!update) return;
     const kind = String(update.sessionUpdate || "");
     const content = update.content as { text?: string } | undefined;
 
     if (kind === "agent_message_chunk" && content?.text) {
-      this.events.emit({ type: "text_delta", sessionId: this.sessionId, text: content.text });
+      this.events.emit({ type: "text_delta", sessionId, text: content.text });
     } else if (kind === "agent_thought_chunk" && content?.text) {
-      this.events.emit({ type: "thought_delta", sessionId: this.sessionId, text: content.text });
+      this.events.emit({ type: "thought_delta", sessionId, text: content.text });
     } else if (kind === "tool_call" || kind === "tool_call_update") {
-      this.events.emit({ type: "tool", sessionId: this.sessionId, update });
+      this.events.emit({ type: "tool", sessionId, update });
     } else if (kind === "plan") {
-      this.events.emit({ type: "plan", sessionId: this.sessionId, plan: update });
+      this.events.emit({ type: "plan", sessionId, plan: update });
     }
   }
 
@@ -205,8 +222,18 @@ export class AcpClient {
     method: string,
     params: Record<string, unknown>,
   ): void {
-    const requestId = `${method}:${String(rpcId)}`;
-    this.interactions.set(requestId, { rpcId, method });
+    const requestId = randomUUID();
+    const options = Array.isArray(params.options)
+      ? params.options as Array<{ optionId?: unknown }>
+      : [];
+    this.interactions.set(requestId, {
+      rpcId,
+      method,
+      allowedOptionIds: method === "session/request_permission"
+        ? new Set(options.flatMap((option) =>
+            typeof option.optionId === "string" ? [option.optionId] : []))
+        : undefined,
+    });
     if (method === "session/request_permission") {
       this.events.emit({
         type: "permission_request",
@@ -229,16 +256,21 @@ export class AcpClient {
         request: params,
       });
     } else {
-      this.respond(rpcId, { outcome: { outcome: "cancelled" } });
+      this.respondError(rpcId, -32601, `Method not found: ${method}`);
       this.interactions.delete(requestId);
     }
   }
 
   private fail(error: Error): void {
+    if (!this.process) return;
+    this.process = undefined;
+    this.busy = false;
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.interactions.clear();
     if (this.sessionId) {
       this.events.emit({ type: "error", sessionId: this.sessionId, message: error.message });
     }
+    this.onExit?.();
   }
 }
