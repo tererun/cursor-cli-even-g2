@@ -1,0 +1,1 @@
+# cursor-cli-even-g2
