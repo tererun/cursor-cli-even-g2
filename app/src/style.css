@@ -1,0 +1,18 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #e9fff3;
+  background: #07120c;
+}
+
+body { margin: 0; }
+main { max-width: 760px; margin: auto; padding: 24px; }
+h1, h2 { color: #66f59a; }
+form { display: grid; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid #28543a; border-radius: 12px; }
+label { display: grid; gap: 6px; }
+input, button { font: inherit; padding: 10px; border-radius: 8px; }
+input { color: inherit; background: #0d2116; border: 1px solid #39714e; }
+button { cursor: pointer; color: #07120c; background: #66f59a; border: 0; font-weight: 700; }
+#sessions { display: grid; gap: 8px; }
+.session { text-align: left; }
+pre { min-height: 180px; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: #020704; border-radius: 8px; }
+.error { color: #ff8d8d; }

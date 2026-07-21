@@ -1,0 +1,20 @@
+{
+  "name": "cursor-cli-even-g2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "app",
+    "server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:app": "npm run dev --workspace app",
+    "dev:server": "npm run dev --workspace server",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
