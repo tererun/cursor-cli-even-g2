@@ -1,0 +1,23 @@
+{
+  "package_id": "dev.tererun.cursorg2",
+  "edition": "202601",
+  "name": "Cursor G2",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.12",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connects to your private Cursor ACP bridge through Tailscale.",
+      "whitelist": [
+        "https://cursor-g2.example.com"
+      ]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Captures voice prompts from the glasses microphone."
+    }
+  ],
+  "supported_languages": ["ja"]
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Cursor G2</title>
+  </head>
+  <body>
+    <main>
+      <h1>Cursor G2</h1>
+      <p id="status">Even Hub Bridgeを待っています…</p>
+      <form id="settings-form">
+        <label>Bridge URL <input id="server-url" type="url" placeholder="https://server.tailnet.ts.net" required /></label>
+        <label>Bearer token <input id="token" type="password" autocomplete="off" required /></label>
+        <button type="submit">保存・接続</button>
+      </form>
+      <form id="session-form">
+        <label>Remote project path <input id="cwd" placeholder="/home/user/project" required /></label>
+        <button type="submit">新規セッション</button>
+      </form>
+      <section>
+        <h2>セッション</h2>
+        <div id="sessions"></div>
+      </section>
+      <section>
+        <h2>出力</h2>
+        <pre id="output"></pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
