@@ -7,6 +7,7 @@ interface VirtualKeyboardNavigator extends Navigator {
 export class KeyboardCapture {
   private composing = false;
   private focused = false;
+  private armed = false;
   private flushTimer: number | undefined;
   private pending = "";
   private onData?: (data: string) => void;
@@ -23,7 +24,17 @@ export class KeyboardCapture {
     this.field.addEventListener("focus", this.onFocus);
     document.addEventListener("visibilitychange", this.onVisibility);
     window.addEventListener("focus", this.onWindowFocus);
+  }
+
+  arm(): void {
+    this.armed = true;
     this.keepFocus();
+  }
+
+  disarm(): void {
+    this.armed = false;
+    if (this.retryTimer) window.clearInterval(this.retryTimer);
+    this.retryTimer = undefined;
   }
 
   stop(): void {
@@ -44,6 +55,7 @@ export class KeyboardCapture {
   }
 
   keepFocus(): void {
+    this.armed = true;
     this.focusNow();
     window.requestAnimationFrame(() => this.focusNow());
     if (this.retryTimer) window.clearInterval(this.retryTimer);
@@ -98,7 +110,7 @@ export class KeyboardCapture {
   private readonly onBlur = (): void => {
     this.focused = false;
     window.setTimeout(() => {
-      if (document.visibilityState === "visible") this.focusNow();
+      if (this.armed && document.visibilityState === "visible") this.focusNow();
     }, 50);
   };
 
@@ -107,11 +119,11 @@ export class KeyboardCapture {
   };
 
   private readonly onVisibility = (): void => {
-    if (document.visibilityState === "visible") this.keepFocus();
+    if (this.armed && document.visibilityState === "visible") this.keepFocus();
   };
 
   private readonly onWindowFocus = (): void => {
-    this.keepFocus();
+    if (this.armed) this.keepFocus();
   };
 
   private queue(data: string, immediate: boolean): void {

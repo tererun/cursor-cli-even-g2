@@ -116,7 +116,7 @@ async function attachSession(session: TermSession): Promise<void> {
   streamController = new AbortController();
   void api.stream(session.id, handleServerEvent, streamController.signal);
   setStatus(`${session.title}  ${session.cols}x${session.rows}`);
-  keyboard.keepFocus();
+  keyboard.arm();
   setKbStatus();
   await renderer.terminal("connecting…");
 }
@@ -234,8 +234,10 @@ elements.sessionForm.addEventListener("submit", (event) => {
   })().catch((error) => setStatus(error instanceof Error ? error.message : String(error), true));
 });
 
+elements.settings.addEventListener("focusin", () => keyboard.disarm());
+elements.sessionForm.addEventListener("focusin", () => keyboard.disarm());
 elements.focusKb.addEventListener("click", () => {
-  keyboard.keepFocus();
+  keyboard.arm();
   setKbStatus();
 });
 elements.sendEsc.addEventListener("click", () => enqueueInput("\x1b"));

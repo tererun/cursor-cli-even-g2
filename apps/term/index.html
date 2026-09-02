@@ -35,6 +35,7 @@
       <section class="panel">
         <h2>BTキーボード</h2>
         <p id="kb-status">未フォーカス</p>
+        <textarea id="kb-capture" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="ここをフォーカスしたままBTキーボードで入力"></textarea>
         <div class="row">
           <button id="focus-kb" type="button">キーボードを掴む</button>
           <button id="send-esc" class="secondary" type="button">Esc</button>
@@ -52,7 +53,6 @@
         <pre id="output"></pre>
       </section>
     </main>
-    <textarea id="kb-capture" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
