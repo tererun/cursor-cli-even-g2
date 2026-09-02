@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "app",
-    "server"
+    "apps/*",
+    "servers/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "dev:app": "npm run dev --workspace app",
-    "dev:server": "npm run dev --workspace server",
+    "dev:cursor-app": "npm run dev --workspace @cursor-g2/app",
+    "dev:cursor-server": "npm run dev --workspace @cursor-g2/server",
+    "dev:term-app": "npm run dev --workspace @g2-term/app",
+    "dev:term-server": "npm run dev --workspace @g2-term/server",
+    "dev:app": "npm run dev:cursor-app",
+    "dev:server": "npm run dev:cursor-server",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces"
   },
