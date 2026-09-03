@@ -1,21 +1,21 @@
 [Unit]
-Description=Cursor G2 ACP bridge
+Description=Even G2 SSH/nvim terminal bridge
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=cursor-g2
+User=g2-term
 WorkingDirectory=/opt/cursor-cli-even-g2
-EnvironmentFile=/etc/cursor-g2.env
-ExecStart=/usr/bin/node /opt/cursor-cli-even-g2/servers/cursor/dist/index.js
+EnvironmentFile=/etc/g2-term.env
+ExecStart=/usr/bin/node /opt/cursor-cli-even-g2/servers/term/dist/index.js
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/cursor-g2/.local/state /srv/projects
+ReadWritePaths=/home/g2-term/.local/state /srv/projects
 
 [Install]
 WantedBy=multi-user.target

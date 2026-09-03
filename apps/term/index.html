@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>G2 Term</title>
+  </head>
+  <body>
+    <main>
+      <h1>G2 Term</h1>
+      <p id="status">Even Hub Bridgeを待っています…</p>
+      <p class="hint">BTキーボードはスマホにペアリングし、この画面を前面にしたまま入力します。G2には38x12のPTYが映ります。</p>
+      <form id="settings-form">
+        <label>Bridge URL <input id="server-url" type="url" placeholder="https://server.tailnet.ts.net" required /></label>
+        <label>Bearer token <input id="token" type="password" autocomplete="off" required /></label>
+        <button type="submit">保存・接続</button>
+      </form>
+      <form id="session-form">
+        <label>種類
+          <select id="kind">
+            <option value="ssh">SSH</option>
+            <option value="nvim">nvim（bridgeホスト）</option>
+            <option value="shell">ローカルシェル</option>
+          </select>
+        </label>
+        <label>Remote cwd <input id="cwd" placeholder="/home/user/project" required /></label>
+        <div id="ssh-fields" class="row">
+          <label>user <input id="ssh-user" placeholder="ada" /></label>
+          <label>host <input id="ssh-host" placeholder="devbox" /></label>
+          <label>port <input id="ssh-port" type="number" value="22" min="1" max="65535" /></label>
+        </div>
+        <button type="submit">セッション開始</button>
+      </form>
+      <section class="panel">
+        <h2>BTキーボード</h2>
+        <p id="kb-status">未フォーカス</p>
+        <textarea id="kb-capture" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="ここをフォーカスしたままBTキーボードで入力"></textarea>
+        <div class="row">
+          <button id="focus-kb" type="button">キーボードを掴む</button>
+          <button id="send-esc" class="secondary" type="button">Esc</button>
+          <button id="send-ctrl-c" class="secondary" type="button">Ctrl+C</button>
+          <button id="send-tab" class="secondary" type="button">Tab</button>
+          <button id="send-ctrl-z" class="secondary" type="button">Ctrl+Z</button>
+        </div>
+      </section>
+      <section>
+        <h2>セッション</h2>
+        <div id="sessions"></div>
+      </section>
+      <section>
+        <h2>端末</h2>
+        <pre id="output"></pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
